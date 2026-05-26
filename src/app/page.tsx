@@ -222,6 +222,11 @@ export default function Page() {
     if (data && base !== "AZN" && data.rates[base] === undefined) setBase("AZN");
   }, [data, base]);
 
+  // Baza valyutası seçilmişlərdə ola bilməz — seçiləndə avtomatik çıxarılır.
+  useEffect(() => {
+    if (featured.includes(base)) setFeatured((prev) => prev.filter((c) => c !== base));
+  }, [base, featured]);
+
   const amountNum = useMemo(() => parseAmount(amount), [amount]);
 
   // Bütün kodlar (AZN daxil) — baza seçimi üçün.
@@ -494,13 +499,6 @@ export default function Page() {
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-emerald-500/60 focus:bg-white/[0.07] placeholder:text-slate-600"
           />
         </div>
-      )}
-
-      {/* Baza seçilmişlərdədirsə — niyə bir kart az göründüyünü izah et */}
-      {view === "featured" && featured.includes(base) && (
-        <p className="mb-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
-          ℹ️ <span className="font-semibold text-slate-200">{base}</span> hazırda baza valyutasıdır — ona görə aşağıdakı siyahıda göstərilmir.
-        </p>
       )}
 
       {/* ── Məzmun ─────────────────────────────────────────────── */}
