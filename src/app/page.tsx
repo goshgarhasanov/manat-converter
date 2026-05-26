@@ -496,6 +496,13 @@ export default function Page() {
         </div>
       )}
 
+      {/* Baza seçilmişlərdədirsə — niyə bir kart az göründüyünü izah et */}
+      {view === "featured" && featured.includes(base) && (
+        <p className="mb-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
+          ℹ️ <span className="font-semibold text-slate-200">{base}</span> hazırda baza valyutasıdır — ona görə aşağıdakı siyahıda göstərilmir.
+        </p>
+      )}
+
       {/* ── Məzmun ─────────────────────────────────────────────── */}
       <div className="flex-1">
         {loading && !data && (
