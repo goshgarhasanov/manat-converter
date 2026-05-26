@@ -127,6 +127,12 @@ function formatClock(d: Date): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+// Deterministik minlik ayırıcı (boşluq) — locale ICU-dan asılı deyil, ona görə
+// SSR ilə client eyni nəticə verir (hidrasiya uyğunsuzluğu olmur).
+function groupDigits(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
 export default function Page() {
   const [amount, setAmount] = useState("100");
   const [base, setBase] = useState("AZN");
@@ -428,7 +434,7 @@ export default function Page() {
                     : "bg-white/5 text-slate-300 hover:bg-white/10")
                 }
               >
-                {q.toLocaleString("az-AZ")}
+                {groupDigits(q)}
               </button>
             );
           })}
