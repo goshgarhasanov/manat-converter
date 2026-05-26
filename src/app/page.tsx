@@ -102,6 +102,24 @@ function matches(code: string, q: string): boolean {
   return code.toLowerCase().includes(s) || getMeta(code).name.toLowerCase().includes(s);
 }
 
+// Tarix/saat — Azərbaycan adları əl ilə (runtime-ın ICU dilindən asılı olmasın).
+const AZ_MONTHS = [
+  "Yanvar", "Fevral", "Mart", "Aprel", "May", "İyun",
+  "İyul", "Avqust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr",
+];
+// getDay(): 0=Bazar … 6=Şənbə
+const AZ_WEEKDAYS = [
+  "Bazar", "Bazar ertəsi", "Çərşənbə axşamı", "Çərşənbə",
+  "Cümə axşamı", "Cümə", "Şənbə",
+];
+function formatAzDate(d: Date): string {
+  return `${d.getDate()} ${AZ_MONTHS[d.getMonth()]} ${d.getFullYear()}, ${AZ_WEEKDAYS[d.getDay()]}`;
+}
+function formatClock(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export default function Page() {
   const [amount, setAmount] = useState("100");
   const [base, setBase] = useState("AZN");
@@ -279,25 +297,16 @@ export default function Page() {
             </span>
             <div className="text-left">
               <div className="tnum bg-gradient-to-r from-cyan-300 to-emerald-300 bg-clip-text text-2xl font-black leading-none text-transparent sm:text-3xl">
-                {now.toLocaleTimeString("az-AZ", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}
+                {formatClock(now)}
               </div>
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium capitalize text-slate-400">
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-none text-violet-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="4" width="18" height="18" rx="2" />
                   <line x1="16" y1="2" x2="16" y2="6" />
                   <line x1="8" y1="2" x2="8" y2="6" />
                   <line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                {now.toLocaleDateString("az-AZ", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
+                {formatAzDate(now)}
               </div>
             </div>
           </div>
