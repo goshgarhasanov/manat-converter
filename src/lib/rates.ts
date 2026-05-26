@@ -1,30 +1,26 @@
-import { NextResponse } from "next/server";
-import { CRYPTO_IDS } from "@/lib/currencies";
+// Məzənnə çəkici — birbaşa brauzerdən (statik sayt üçün). Hər iki mənbə
+// CORS-a icazə verir (Access-Control-Allow-Origin: *), ona görə server
+// route-suz işləyir və GitHub Pages-də deploy oluna bilir.
+//
+// rates[CODE] = 1 manatın həmin valyutadakı qarşılığı → çevirmə: məbləğ × rate.
+import { CRYPTO_IDS } from "./currencies";
 
-// Məzənnələr: 1 AZN = `rates[CODE]` vahid valyuta.
-// Fiat:  open.er-api.com (açar tələb etmir) — AZN bazasında ~160 valyuta.
-// Kripto: CoinGecko (açar tələb etmir) — USD qiyməti AZN→USD ilə çevrilir.
-
-export const revalidate = 300; // 5 dəqiqə keş
-
-interface RatesPayload {
+export interface RatesResult {
   base: "AZN";
   updatedAt: string;
   rates: Record<string, number>;
   source: { fiat: boolean; crypto: boolean };
 }
 
-export async function GET() {
+export async function fetchRates(): Promise<RatesResult> {
   const rates: Record<string, number> = {};
   let fiatOk = false;
   let cryptoOk = false;
   let updatedAt = new Date().toISOString();
 
-  // 1) Fiat məzənnələri (AZN bazası).
+  // 1) Fiat (AZN bazası)
   try {
-    const res = await fetch("https://open.er-api.com/v6/latest/AZN", {
-      next: { revalidate: 300 },
-    });
+    const res = await fetch("https://open.er-api.com/v6/latest/AZN");
     const data = await res.json();
     if (data?.result === "success" && data.rates) {
       for (const [code, value] of Object.entries(data.rates)) {
@@ -36,18 +32,16 @@ export async function GET() {
       }
     }
   } catch {
-    // fiat alınmadı — kripto yenə cəhd ediləcək
+    /* fiat alınmadı */
   }
 
-  // 2) Kripto qiymətləri (USD) → AZN→kripto.
-  // 1 AZN = rates.USD USD; 1 kripto = priceUsd USD → 1 AZN = rates.USD / priceUsd kripto.
+  // 2) Kripto (USD qiymət → AZN→kripto = (AZN→USD) / qiymətUSD)
   const azToUsd = rates.USD;
   if (azToUsd && azToUsd > 0) {
     try {
       const ids = Object.keys(CRYPTO_IDS).join(",");
       const res = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
-        { next: { revalidate: 120 } },
       );
       const data = (await res.json()) as Record<string, { usd?: number }>;
       for (const [id, code] of Object.entries(CRYPTO_IDS)) {
@@ -58,22 +52,12 @@ export async function GET() {
         }
       }
     } catch {
-      // kripto alınmadı — yalnız fiat qaytarılacaq
+      /* kripto alınmadı */
     }
   }
 
   if (!fiatOk && !cryptoOk) {
-    return NextResponse.json(
-      { error: "Məzənnələr hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin." },
-      { status: 502 },
-    );
+    throw new Error("Məzənnələr hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.");
   }
-
-  const payload: RatesPayload = {
-    base: "AZN",
-    updatedAt,
-    rates,
-    source: { fiat: fiatOk, crypto: cryptoOk },
-  };
-  return NextResponse.json(payload);
+  return { base: "AZN", updatedAt, rates, source: { fiat: fiatOk, crypto: cryptoOk } };
 }

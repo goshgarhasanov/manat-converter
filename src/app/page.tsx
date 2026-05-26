@@ -7,13 +7,9 @@ import {
   POPULAR_ORDER,
   type CurrencyType,
 } from "@/lib/currencies";
+import { fetchRates, type RatesResult } from "@/lib/rates";
 
-interface RatesResponse {
-  base: string;
-  updatedAt: string;
-  rates: Record<string, number>;
-  source: { fiat: boolean; crypto: boolean };
-}
+type RatesResponse = RatesResult;
 
 const STORAGE_KEY = "manat:featured";
 
@@ -79,10 +75,8 @@ export default function Page() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/rates");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Məzənnələr alınmadı.");
-      setData(json as RatesResponse);
+      const json = await fetchRates();
+      setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Naməlum xəta baş verdi.");
     } finally {
