@@ -5,6 +5,7 @@ import {
   getMeta,
   DEFAULT_FEATURED,
   POPULAR_ORDER,
+  CURRENCY_UNITS,
   type CurrencyType,
 } from "@/lib/currencies";
 import { fetchRates, type RatesResult } from "@/lib/rates";
@@ -62,14 +63,20 @@ function azInteger(num: number): string {
   return parts.join(" ");
 }
 
-// Fiat dəyərini sözlə: tam hissə + (varsa) "tam" + qəpik hissəsi. İlk hərf böyük.
-function valueToWords(value: number): string {
+// Fiat dəyərini sözlə: "əlli manat əlli dörd qəpik" (valyutanın öz vahidi ilə).
+// Vahid məlum deyilsə "tam" üslubuna keçir. İlk hərf böyük.
+function valueToWords(value: number, code: string): string {
   if (!isFinite(value) || value < 0) return "";
   const intPart = Math.floor(value + 1e-9);
   if (intPart >= 1e12) return ""; // çox böyük rəqəm sözlə yazılmır
   const frac = Math.round((value - intPart) * 100);
-  let w = azInteger(intPart);
-  if (frac > 0) w += " tam " + azInteger(frac);
+  const units = CURRENCY_UNITS[code];
+  // Vahid adı: məlumdursa CURRENCY_UNITS-dən, yoxsa valyutanın öz adı.
+  const unitName = units?.unit ?? getMeta(code).name.toLowerCase();
+  let w = `${azInteger(intPart)} ${unitName}`;
+  if (frac > 0) {
+    w += units?.sub ? ` ${azInteger(frac)} ${units.sub}` : ` tam ${azInteger(frac)}`;
+  }
   return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
@@ -127,7 +134,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featured, setFeatured] = useState<string[]>(DEFAULT_FEATURED);
-  const [showAll, setShowAll] = useState(false);
+  const [view, setView] = useState<"featured" | "crypto" | "fiat" | "all">("featured");
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -237,9 +244,25 @@ export default function Page() {
   );
 
   const visibleTargets = useMemo(() => {
-    if (!showAll) return featuredTargets;
-    return allCodes.filter((c) => c !== base && matches(c, query));
-  }, [showAll, featuredTargets, allCodes, base, query]);
+    if (view === "featured") return featuredTargets;
+    return allCodes.filter((c) => {
+      if (c === base) return false;
+      if (view === "crypto" && getMeta(c).type !== "crypto") return false;
+      if (view === "fiat" && getMeta(c).type !== "fiat") return false;
+      return matches(c, query);
+    });
+  }, [view, featuredTargets, allCodes, base, query]);
+
+  const counts = useMemo(() => {
+    let crypto = 0;
+    let fiat = 0;
+    for (const c of allCodes) {
+      if (c === base) continue;
+      if (getMeta(c).type === "crypto") crypto++;
+      else fiat++;
+    }
+    return { crypto, fiat, all: crypto + fiat };
+  }, [allCodes, base]);
 
   function convert(code: string): number {
     if (!data || !baseValid) return NaN;
@@ -408,51 +431,59 @@ export default function Page() {
       </div>
 
       {/* ── Toolbar ────────────────────────────────────────────── */}
-      <div className="mb-3 mt-5 flex items-center justify-between gap-3">
+      <div className="mb-3 mt-5 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <div
           role="tablist"
           aria-label="Görünüş"
-          className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1 text-sm"
+          className="inline-flex w-max gap-1 rounded-xl border border-white/10 bg-white/5 p-1 text-sm"
         >
-          <button
-            role="tab"
-            aria-selected={!showAll}
-            onClick={() => {
-              setShowAll(false);
-              setQuery("");
-            }}
-            className={
-              "rounded-lg px-3 py-1.5 font-medium transition " +
-              (!showAll ? "bg-emerald-500/20 text-emerald-200" : "text-slate-400 hover:text-slate-200")
-            }
-          >
-            Seçilmişlər
-            <span
-              className={
-                "ml-1 text-xs " + (atLimit ? "font-bold text-amber-300" : "opacity-70")
-              }
-            >
-              {featured.length}/{MAX_FEATURED}
-            </span>
-          </button>
-          <button
-            role="tab"
-            aria-selected={showAll}
-            onClick={() => setShowAll(true)}
-            className={
-              "rounded-lg px-3 py-1.5 font-medium transition " +
-              (showAll ? "bg-emerald-500/20 text-emerald-200" : "text-slate-400 hover:text-slate-200")
-            }
-          >
-            Hamısı
-            {allCodes.length > 0 && (
-              <span className="ml-1 text-xs opacity-70">{allCodes.length}</span>
-            )}
-          </button>
+          {(
+            [
+              ["featured", "Seçilmişlər"],
+              ["crypto", "Kripto"],
+              ["fiat", "Ölkələr"],
+              ["all", "Hamısı"],
+            ] as const
+          ).map(([key, label]) => {
+            const active = view === key;
+            const badge =
+              key === "featured"
+                ? `${featured.length}/${MAX_FEATURED}`
+                : key === "crypto"
+                  ? counts.crypto
+                  : key === "fiat"
+                    ? counts.fiat
+                    : counts.all;
+            return (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  setView(key);
+                  if (key === "featured") setQuery("");
+                }}
+                className={
+                  "flex-none whitespace-nowrap rounded-lg px-3 py-1.5 font-medium transition " +
+                  (active ? "bg-emerald-500/20 text-emerald-200" : "text-slate-400 hover:text-slate-200")
+                }
+              >
+                {label}
+                <span
+                  className={
+                    "ml-1 text-xs " +
+                    (key === "featured" && atLimit ? "font-bold text-amber-300" : "opacity-70")
+                  }
+                >
+                  {badge}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {showAll && (
+      {view !== "featured" && (
         <div className="mb-3">
           <input
             type="text"
@@ -491,11 +522,11 @@ export default function Page() {
           </div>
         )}
 
-        {data && !showAll && featuredTargets.length === 0 && (
+        {data && view === "featured" && featuredTargets.length === 0 && (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-slate-400">
             Göstəriləcək valyuta yoxdur.
             <button
-              onClick={() => setShowAll(true)}
+              onClick={() => setView("all")}
               className="ml-1 font-semibold text-emerald-300 underline-offset-2 hover:underline"
             >
               Valyuta əlavə et →
@@ -512,7 +543,7 @@ export default function Page() {
               const isFav = featured.includes(code);
               const isCopied = copied === code;
               const lockedOut = !isFav && atLimit;
-              const words = meta.type === "fiat" && amountNum > 0 ? valueToWords(value) : "";
+              const words = amountNum > 0 && value >= 0.005 ? valueToWords(value, code) : "";
               return (
                 <div
                   key={code}
@@ -597,7 +628,7 @@ export default function Page() {
           </div>
         )}
 
-        {data && showAll && visibleTargets.length === 0 && (
+        {data && view !== "featured" && visibleTargets.length === 0 && (
           <p className="py-10 text-center text-slate-400">
             “{query}” üzrə valyuta tapılmadı.
           </p>
