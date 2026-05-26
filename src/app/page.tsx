@@ -148,6 +148,9 @@ export default function Page() {
   const [pickerQuery, setPickerQuery] = useState("");
   const [mounted, setMounted] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => void; userChoice: Promise<unknown> } | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const [iosHint, setIosHint] = useState(false);
 
   // localStorage oxu (yalnız brauzerdə)
   useEffect(() => {
@@ -221,6 +224,24 @@ export default function Page() {
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
+  }, []);
+
+  // PWA quraşdırma — brauzerin install prompt-unu tut.
+  useEffect(() => {
+    const onBIP = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as unknown as { prompt: () => void; userChoice: Promise<unknown> });
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setDeferredPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", onBIP);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBIP);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
   // Baza valyutası məzənnələrdə yoxdursa (köhnə localStorage) AZN-ə qayıt.
@@ -317,6 +338,21 @@ export default function Page() {
   const atLimit = featured.length >= MAX_FEATURED;
   const baseMeta = getMeta(base);
 
+  const isIOS = mounted && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone =
+    mounted &&
+    (window.matchMedia("(display-mode: standalone)").matches ||
+      (navigator as { standalone?: boolean }).standalone === true);
+  const canInstall = mounted && !installed && !isStandalone && (!!deferredPrompt || isIOS);
+  function install() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.finally(() => setDeferredPrompt(null));
+      return;
+    }
+    if (isIOS) setIosHint(true);
+  }
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 sm:px-6">
       {/* ── Tarix və canlı saat ────────────────────────────────── */}
@@ -369,14 +405,30 @@ export default function Page() {
             </p>
           </div>
         </div>
-        <button
-          onClick={loadRates}
-          disabled={loading}
-          aria-label="Məzənnələri yenilə"
-          className="flex-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-200 transition active:scale-95 hover:bg-white/10 disabled:opacity-40"
-        >
-          <span className={"inline-block " + (loading ? "animate-spin" : "")}>↻</span>
-        </button>
+        <div className="flex flex-none items-center gap-2">
+          {canInstall && (
+            <button
+              onClick={install}
+              aria-label="Tətbiqi telefona/masaüstünə quraşdır"
+              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 px-3 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-emerald-500/25 transition active:scale-95 hover:brightness-110"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+              Quraşdır
+            </button>
+          )}
+          <button
+            onClick={loadRates}
+            disabled={loading}
+            aria-label="Məzənnələri yenilə"
+            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-200 transition active:scale-95 hover:bg-white/10 disabled:opacity-40"
+          >
+            <span className={"inline-block " + (loading ? "animate-spin" : "")}>↻</span>
+          </button>
+        </div>
       </header>
 
       {/* ── Sticky çevirici ────────────────────────────────────── */}
@@ -761,6 +813,38 @@ export default function Page() {
         <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex justify-center px-4">
           <div className="pointer-events-auto rounded-xl border border-amber-500/30 bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-200 shadow-lg backdrop-blur">
             {notice}
+          </div>
+        </div>
+      )}
+
+      {/* ── iOS quraşdırma təlimatı ─────────────────────────────── */}
+      {iosHint && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => setIosHint(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ana ekrana əlavə et"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0a0f18] p-6 text-center shadow-2xl"
+          >
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-slate-950">
+              ⇄
+            </div>
+            <h2 className="text-lg font-bold text-white">Ana ekrana əlavə et</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+              Safari-də aşağıdakı <span className="font-semibold text-white">Paylaş</span>{" "}
+              <span aria-hidden>⬆️</span> düyməsinə toxun, sonra{" "}
+              <span className="font-semibold text-white">“Ana ekrana əlavə et”</span> seç.
+            </p>
+            <button
+              onClick={() => setIosHint(false)}
+              className="mt-5 w-full rounded-xl bg-emerald-500/90 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+            >
+              Anladım
+            </button>
           </div>
         </div>
       )}
