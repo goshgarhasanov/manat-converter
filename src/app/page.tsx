@@ -9,6 +9,7 @@ import {
   type CurrencyType,
 } from "@/lib/currencies";
 import { fetchRates, type RatesResult } from "@/lib/rates";
+import { loadVisitStats, type VisitStats } from "@/lib/stats";
 
 const KEY_FEATURED = "cevir:featured";
 const KEY_BASE = "cevir:base";
@@ -151,6 +152,7 @@ export default function Page() {
   const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => void; userChoice: Promise<unknown> } | null>(null);
   const [installed, setInstalled] = useState(false);
   const [iosHint, setIosHint] = useState(false);
+  const [visits, setVisits] = useState<VisitStats | null>(null);
 
   // localStorage oxu (yalnız brauzerdə)
   useEffect(() => {
@@ -217,6 +219,7 @@ export default function Page() {
 
   useEffect(() => {
     loadRates();
+    loadVisitStats().then(setVisits);
   }, []);
 
   // Canlı saat (hidrasiya sıçrayışı olmasın deyə yalnız brauzerdə işləyir).
@@ -730,7 +733,14 @@ export default function Page() {
           </a>
         </div>
 
-        <div className="mt-5 space-y-1 text-center text-[11px] text-slate-500">
+        <div className="mt-5 space-y-1.5 text-center text-[11px] text-slate-500">
+          {visits && (
+            <p className="tnum flex items-center justify-center gap-2 text-slate-400">
+              <span>📊 Bu gün: <b className="text-slate-200">{groupDigits(visits.today)}</b></span>
+              <span className="text-slate-600">·</span>
+              <span>Ümumi: <b className="text-slate-200">{groupDigits(visits.total)}</b> ziyarət</span>
+            </p>
+          )}
           {data && (
             <p className="tnum">
               Son yeniləmə: {new Date(data.updatedAt).toLocaleString("az-AZ")}
