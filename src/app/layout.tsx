@@ -2,12 +2,12 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Manat — Valyuta Çevirici",
+  title: "Çevir — Valyuta Çevirici",
   description:
-    "Manat (AZN) əsaslı canlı valyuta çevirici. Bütün dünya valyutaları və populyar kriptovalyutalar — real vaxtda məzənnə ilə.",
-  applicationName: "Manat Çevirici",
-  authors: [{ name: "goshgarhasanov" }],
-  keywords: ["manat", "AZN", "valyuta çevirici", "məzənnə", "kripto", "Azərbaycan"],
+    "Çevir — istənilən valyutadan istənilən valyutaya canlı çevirici. 170+ dünya valyutası və populyar kriptovalyutalar, real vaxtda məzənnə ilə.",
+  applicationName: "Çevir",
+  authors: [{ name: "Goshgar Hasanzadeh", url: "https://github.com/goshgarhasanov" }],
+  keywords: ["valyuta çevirici", "məzənnə", "manat", "AZN", "USD", "kripto", "Azərbaycan", "currency converter"],
 };
 
 export const viewport: Viewport = {

@@ -33,6 +33,29 @@ function sortByPopularity(a: string, b: string): number {
   return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib) || a.localeCompare(b);
 }
 
+// Məbləği etibarlı şəkildə oxu: sonuncu "," və ya "." onluq sayılır,
+// qalan ayırıcılar (minlik) silinir. Beləcə "1.000,50" → 1000.5, "1,234.56" → 1234.56.
+function parseAmount(raw: string): number {
+  const cleaned = raw.replace(/\s/g, "");
+  if (!cleaned) return 0;
+  const lastSep = Math.max(cleaned.lastIndexOf(","), cleaned.lastIndexOf("."));
+  const normalized =
+    lastSep === -1
+      ? cleaned
+      : `${cleaned.slice(0, lastSep).replace(/[.,]/g, "")}.${cleaned
+          .slice(lastSep + 1)
+          .replace(/[.,]/g, "")}`;
+  const n = parseFloat(normalized);
+  return isFinite(n) && n >= 0 ? n : 0;
+}
+
+// Valyuta kodu/adı axtarış sorğusuna uyğun gəlirmi.
+function matches(code: string, q: string): boolean {
+  const s = q.trim().toLowerCase();
+  if (!s) return true;
+  return code.toLowerCase().includes(s) || getMeta(code).name.toLowerCase().includes(s);
+}
+
 export default function Page() {
   const [amount, setAmount] = useState("100");
   const [base, setBase] = useState("AZN");
@@ -47,6 +70,7 @@ export default function Page() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState<Date | null>(null);
 
   // localStorage oxu (yalnız brauzerdə)
   useEffect(() => {
@@ -115,10 +139,19 @@ export default function Page() {
     loadRates();
   }, []);
 
-  const amountNum = useMemo(() => {
-    const n = parseFloat(amount.replace(/\s/g, "").replace(",", "."));
-    return isFinite(n) && n >= 0 ? n : 0;
-  }, [amount]);
+  // Canlı saat (hidrasiya sıçrayışı olmasın deyə yalnız brauzerdə işləyir).
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Baza valyutası məzənnələrdə yoxdursa (köhnə localStorage) AZN-ə qayıt.
+  useEffect(() => {
+    if (data && base !== "AZN" && data.rates[base] === undefined) setBase("AZN");
+  }, [data, base]);
+
+  const amountNum = useMemo(() => parseAmount(amount), [amount]);
 
   // Bütün kodlar (AZN daxil) — baza seçimi üçün.
   const allCodes = useMemo(() => {
@@ -141,13 +174,7 @@ export default function Page() {
 
   const visibleTargets = useMemo(() => {
     if (!showAll) return featuredTargets;
-    const list = allCodes.filter((c) => c !== base);
-    const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((code) => {
-      const meta = getMeta(code);
-      return code.toLowerCase().includes(q) || meta.name.toLowerCase().includes(q);
-    });
+    return allCodes.filter((c) => c !== base && matches(c, query));
   }, [showAll, featuredTargets, allCodes, base, query]);
 
   function convert(code: string): number {
@@ -194,8 +221,34 @@ export default function Page() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 sm:px-6">
+      {/* ── Tarix və canlı saat ────────────────────────────────── */}
+      <div className="pt-6 text-center">
+        {now ? (
+          <>
+            <div className="text-xs font-medium capitalize text-slate-400 sm:text-sm">
+              {now.toLocaleDateString("az-AZ", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </div>
+            <div className="tnum mt-0.5 text-3xl font-black tracking-tight text-white sm:text-4xl">
+              {now.toLocaleTimeString("az-AZ", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </div>
+          </>
+        ) : (
+          // Yer tutucu — server/ilk render ilə uyğunluq (hidrasiya sıçrayışı olmasın)
+          <div className="h-[3.25rem] sm:h-[3.75rem]" />
+        )}
+      </div>
+
       {/* ── Hero ───────────────────────────────────────────────── */}
-      <header className="flex items-start justify-between gap-3 pt-7 sm:pt-10">
+      <header className="mt-6 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-slate-950 shadow-lg shadow-emerald-500/25">
             ⇄
@@ -492,7 +545,7 @@ export default function Page() {
               {!data.source.crypto && " · kripto müvəqqəti əlçatan deyil"}
             </p>
           )}
-          <p>Mənbə: open.er-api.com · CoinGecko — məlumat xarakterlidir.</p>
+          <p>© {new Date().getFullYear()} Çevir · Bütün hüquqlar qorunur</p>
         </div>
       </footer>
 
@@ -532,15 +585,7 @@ export default function Page() {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
               {allCodes
-                .filter((code) => {
-                  const q = pickerQuery.trim().toLowerCase();
-                  if (!q) return true;
-                  const meta = getMeta(code);
-                  return (
-                    code.toLowerCase().includes(q) ||
-                    meta.name.toLowerCase().includes(q)
-                  );
-                })
+                .filter((code) => matches(code, pickerQuery))
                 .map((code) => {
                   const meta = getMeta(code);
                   const selected = code === base;
