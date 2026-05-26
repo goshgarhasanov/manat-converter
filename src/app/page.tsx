@@ -9,8 +9,10 @@ import {
 } from "@/lib/currencies";
 import { fetchRates, type RatesResult } from "@/lib/rates";
 
-const STORAGE_KEY = "manat:featured";
+const KEY_FEATURED = "cevir:featured";
+const KEY_BASE = "cevir:base";
 const QUICK_AMOUNTS = [1, 10, 50, 100, 500, 1000];
+const MAX_FEATURED = 5; // seçilmişlər siyahısı ən çox 5 valyuta saxlayır
 
 function formatValue(value: number, type: CurrencyType): string {
   if (!isFinite(value)) return "—";
@@ -33,6 +35,7 @@ function sortByPopularity(a: string, b: string): number {
 
 export default function Page() {
   const [amount, setAmount] = useState("100");
+  const [base, setBase] = useState("AZN");
   const [data, setData] = useState<RatesResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,18 +43,24 @@ export default function Page() {
   const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
   const [mounted, setMounted] = useState(false);
 
+  // localStorage oxu (yalnız brauzerdə)
   useEffect(() => {
     setMounted(true);
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const arr = JSON.parse(saved);
+      const savedF = localStorage.getItem(KEY_FEATURED);
+      if (savedF) {
+        const arr = JSON.parse(savedF);
         if (Array.isArray(arr) && arr.every((x) => typeof x === "string")) {
-          setFeatured(arr);
+          setFeatured([...new Set<string>(arr)].slice(0, MAX_FEATURED));
         }
       }
+      const savedB = localStorage.getItem(KEY_BASE);
+      if (savedB && /^[A-Z]{2,5}$/.test(savedB)) setBase(savedB);
     } catch {
       /* localStorage yoxdur */
     }
@@ -60,11 +69,35 @@ export default function Page() {
   useEffect(() => {
     if (!mounted) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(featured));
+      localStorage.setItem(KEY_FEATURED, JSON.stringify(featured));
     } catch {
       /* yazıla bilmədi */
     }
   }, [featured, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem(KEY_BASE, base);
+    } catch {
+      /* yazıla bilmədi */
+    }
+  }, [base, mounted]);
+
+  // Modal açıq olanda arxa fonun sürüşməsini blokla + Escape ilə bağla
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPickerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pickerOpen]);
 
   async function loadRates() {
     setLoading(true);
@@ -84,43 +117,71 @@ export default function Page() {
 
   const amountNum = useMemo(() => {
     const n = parseFloat(amount.replace(/\s/g, "").replace(",", "."));
-    return isFinite(n) ? n : 0;
+    return isFinite(n) && n >= 0 ? n : 0;
   }, [amount]);
 
+  // Bütün kodlar (AZN daxil) — baza seçimi üçün.
   const allCodes = useMemo(() => {
     if (!data) return [];
-    return Object.keys(data.rates)
-      .filter((c) => c !== "AZN")
-      .sort(sortByPopularity);
+    return Object.keys(data.rates).sort(sortByPopularity);
   }, [data]);
 
-  const featuredCodes = useMemo(
-    () => featured.filter((c) => data?.rates[c] !== undefined),
-    [featured, data],
+  // Seçilmiş baza məzənnəsi (1 AZN = rates[base]). base=AZN → 1.
+  const baseRate = data?.rates[base] ?? 0;
+  const baseValid = baseRate > 0;
+
+  // Hədəf valyutalar — BAZA istisna olunur (özü-özünə çevrilmə göstərilməsin).
+  const featuredTargets = useMemo(
+    () =>
+      featured.filter(
+        (c) => c !== base && data?.rates[c] !== undefined,
+      ),
+    [featured, base, data],
   );
 
-  const visibleCodes = useMemo(() => {
-    if (!showAll) return featuredCodes;
+  const visibleTargets = useMemo(() => {
+    if (!showAll) return featuredTargets;
+    const list = allCodes.filter((c) => c !== base);
     const q = query.trim().toLowerCase();
-    if (!q) return allCodes;
-    return allCodes.filter((code) => {
+    if (!q) return list;
+    return list.filter((code) => {
       const meta = getMeta(code);
-      return (
-        code.toLowerCase().includes(q) || meta.name.toLowerCase().includes(q)
-      );
+      return code.toLowerCase().includes(q) || meta.name.toLowerCase().includes(q);
     });
-  }, [showAll, featuredCodes, allCodes, query]);
+  }, [showAll, featuredTargets, allCodes, base, query]);
+
+  function convert(code: string): number {
+    if (!data || !baseValid) return NaN;
+    return (amountNum * data.rates[code]) / baseRate;
+  }
+
+  function showNotice(msg: string) {
+    setNotice(msg);
+    window.setTimeout(() => setNotice((n) => (n === msg ? null : n)), 2200);
+  }
 
   function toggleFeatured(code: string) {
-    setFeatured((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
-    );
+    if (featured.includes(code)) {
+      setFeatured(featured.filter((c) => c !== code));
+      return;
+    }
+    if (featured.length >= MAX_FEATURED) {
+      showNotice(`Maksimum ${MAX_FEATURED} valyuta seçilə bilər — əvvəlcə birini çıxarın.`);
+      return;
+    }
+    setFeatured([...featured, code]);
+  }
+
+  function chooseBase(code: string) {
+    setBase(code);
+    setPickerOpen(false);
+    setPickerQuery("");
   }
 
   function copyValue(code: string, value: number, type: CurrencyType) {
-    const text = formatValue(value, type).replace(/\s/g, "");
+    if (!isFinite(value)) return;
     navigator.clipboard
-      ?.writeText(text)
+      ?.writeText(formatValue(value, type).replace(/\s/g, ""))
       .then(() => {
         setCopied(code);
         setTimeout(() => setCopied((c) => (c === code ? null : c)), 1200);
@@ -128,24 +189,27 @@ export default function Page() {
       .catch(() => {});
   }
 
+  const atLimit = featured.length >= MAX_FEATURED;
+  const baseMeta = getMeta(base);
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 sm:px-6">
       {/* ── Hero ───────────────────────────────────────────────── */}
       <header className="flex items-start justify-between gap-3 pt-7 sm:pt-10">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-2xl font-black text-slate-950 shadow-lg shadow-emerald-500/25">
-            ₼
+            ⇄
           </div>
           <div>
             <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">
-              Manat Çevirici
+              Çevir
             </h1>
             <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-slate-400">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
               </span>
-              Canlı məzənnə
+              Valyuta çevirici · canlı məzənnə
             </p>
           </div>
         </div>
@@ -159,13 +223,23 @@ export default function Page() {
         </button>
       </header>
 
-      {/* ── Sticky çevirici (həmişə görünür) ───────────────────── */}
+      {/* ── Sticky çevirici ────────────────────────────────────── */}
       <div className="sticky top-0 z-20 -mx-4 mt-5 border-b border-white/5 bg-[#05080e]/80 px-4 pb-4 pt-4 backdrop-blur-xl sm:-mx-6 sm:px-6">
-        <label htmlFor="amount" className="sr-only">
-          Manat məbləği
-        </label>
-        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 transition focus-within:border-emerald-500/60 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-emerald-500/15">
-          <span className="text-2xl font-black text-emerald-400 sm:text-3xl">₼</span>
+        <div className="flex items-stretch gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2 transition focus-within:border-emerald-500/60 focus-within:bg-white/[0.06] focus-within:ring-2 focus-within:ring-emerald-500/15">
+          {/* Baza valyutası seçici */}
+          <button
+            onClick={() => setPickerOpen(true)}
+            aria-label="Baza valyutasını seç"
+            className="flex flex-none items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-left transition active:scale-95 hover:bg-white/10"
+          >
+            <span className="text-xl leading-none">{baseMeta.flag}</span>
+            <span className="font-bold text-white">{base}</span>
+            <span className="text-slate-500">⌄</span>
+          </button>
+
+          <label htmlFor="amount" className="sr-only">
+            Məbləğ
+          </label>
           <input
             id="amount"
             type="text"
@@ -175,19 +249,18 @@ export default function Page() {
             onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
             placeholder="0"
             autoComplete="off"
-            aria-label="Manat məbləği"
-            className="tnum w-full min-w-0 bg-transparent text-2xl font-bold text-white outline-none placeholder:text-slate-600 sm:text-3xl"
+            aria-label="Məbləğ"
+            className="tnum w-full min-w-0 bg-transparent px-1 text-2xl font-bold text-white outline-none placeholder:text-slate-600 sm:text-3xl"
           />
           {amount && (
             <button
               onClick={() => setAmount("")}
               aria-label="Təmizlə"
-              className="flex-none rounded-full p-1.5 text-slate-500 transition active:scale-90 hover:bg-white/10 hover:text-slate-200"
+              className="flex-none self-center rounded-full p-1.5 text-slate-500 transition active:scale-90 hover:bg-white/10 hover:text-slate-200"
             >
               ✕
             </button>
           )}
-          <span className="flex-none text-sm font-semibold text-slate-500">AZN</span>
         </div>
 
         {/* Sürətli məbləğlər */}
@@ -205,7 +278,7 @@ export default function Page() {
                     : "bg-white/5 text-slate-300 hover:bg-white/10")
                 }
               >
-                {q.toLocaleString("az-AZ")} ₼
+                {q.toLocaleString("az-AZ")}
               </button>
             );
           })}
@@ -232,7 +305,13 @@ export default function Page() {
             }
           >
             Seçilmişlər
-            <span className="ml-1 text-xs opacity-70">{featuredCodes.length}</span>
+            <span
+              className={
+                "ml-1 text-xs " + (atLimit ? "font-bold text-amber-300" : "opacity-70")
+              }
+            >
+              {featured.length}/{MAX_FEATURED}
+            </span>
           </button>
           <button
             role="tab"
@@ -251,7 +330,6 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Axtarış */}
       {showAll && (
         <div className="mb-3">
           <input
@@ -291,9 +369,9 @@ export default function Page() {
           </div>
         )}
 
-        {data && !showAll && featuredCodes.length === 0 && (
+        {data && !showAll && featuredTargets.length === 0 && (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-10 text-center text-slate-400">
-            Seçilmiş valyuta yoxdur.
+            Göstəriləcək valyuta yoxdur.
             <button
               onClick={() => setShowAll(true)}
               className="ml-1 font-semibold text-emerald-300 underline-offset-2 hover:underline"
@@ -303,13 +381,15 @@ export default function Page() {
           </div>
         )}
 
-        {data && visibleCodes.length > 0 && (
+        {data && visibleTargets.length > 0 && (
           <div className="grid gap-2.5 sm:grid-cols-2">
-            {visibleCodes.map((code) => {
+            {visibleTargets.map((code) => {
               const meta = getMeta(code);
-              const rate = data.rates[code];
+              const value = convert(code);
+              const unit = baseValid ? data.rates[code] / baseRate : NaN;
               const isFav = featured.includes(code);
               const isCopied = copied === code;
+              const lockedOut = !isFav && atLimit;
               return (
                 <div
                   key={code}
@@ -331,17 +411,16 @@ export default function Page() {
                     <div className="truncate text-xs text-slate-400">{meta.name}</div>
                   </div>
 
-                  {/* Dəyər — toxunaraq kopyala */}
                   <button
-                    onClick={() => copyValue(code, amountNum * rate, meta.type)}
+                    onClick={() => copyValue(code, value, meta.type)}
                     aria-label={`${code} dəyərini kopyala`}
                     className="flex-none text-right transition active:scale-95"
                   >
                     <div className="tnum font-bold text-emerald-300">
-                      {isCopied ? "✓ kopyalandı" : formatValue(amountNum * rate, meta.type)}
+                      {isCopied ? "✓ kopyalandı" : formatValue(value, meta.type)}
                     </div>
                     <div className="tnum text-[11px] text-slate-500">
-                      1 ₼ = {formatValue(rate, meta.type)}
+                      1 {base} = {formatValue(unit, meta.type)}
                     </div>
                   </button>
 
@@ -349,11 +428,14 @@ export default function Page() {
                     onClick={() => toggleFeatured(code)}
                     aria-label={isFav ? "Seçilmişlərdən çıxar" : "Seçilmişlərə əlavə et"}
                     aria-pressed={isFav}
+                    title={lockedOut ? `Limit dolub (${MAX_FEATURED}/${MAX_FEATURED})` : undefined}
                     className={
                       "flex h-10 w-10 flex-none items-center justify-center rounded-xl text-lg transition active:scale-90 " +
                       (isFav
                         ? "text-amber-400 hover:bg-amber-400/10"
-                        : "text-slate-600 hover:bg-white/5 hover:text-slate-300")
+                        : lockedOut
+                          ? "text-slate-700"
+                          : "text-slate-600 hover:bg-white/5 hover:text-slate-300")
                     }
                   >
                     {isFav ? "★" : "☆"}
@@ -364,7 +446,7 @@ export default function Page() {
           </div>
         )}
 
-        {data && showAll && visibleCodes.length === 0 && (
+        {data && showAll && visibleTargets.length === 0 && (
           <p className="py-10 text-center text-slate-400">
             “{query}” üzrə valyuta tapılmadı.
           </p>
@@ -387,7 +469,23 @@ export default function Page() {
           </a>
         </div>
 
-        <div className="mt-5 space-y-1 text-center text-xs text-slate-500">
+        {/* Rəngli, gözə çarpan müəllif krediti */}
+        <div className="mt-6 flex justify-center">
+          <a
+            href="https://github.com/goshgarhasanov"
+            target="_blank"
+            rel="noreferrer"
+            className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 transition hover:border-emerald-400/30 hover:bg-white/[0.06]"
+          >
+            <span className="text-xs font-medium text-slate-400">Developed by</span>
+            <span className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-400 bg-clip-text text-sm font-extrabold tracking-tight text-transparent">
+              Goshgar Hasanzadeh
+            </span>
+            <span className="text-sm transition group-hover:rotate-12">✦</span>
+          </a>
+        </div>
+
+        <div className="mt-5 space-y-1 text-center text-[11px] text-slate-500">
           {data && (
             <p className="tnum">
               Son yeniləmə: {new Date(data.updatedAt).toLocaleString("az-AZ")}
@@ -395,19 +493,92 @@ export default function Page() {
             </p>
           )}
           <p>Mənbə: open.er-api.com · CoinGecko — məlumat xarakterlidir.</p>
-          <p className="pt-1 text-slate-400">
-            Developed by{" "}
-            <a
-              href="https://github.com/goshgarhasanov"
-              target="_blank"
-              rel="noreferrer"
-              className="font-semibold text-slate-300 underline-offset-2 hover:text-emerald-300 hover:underline"
-            >
-              Goshgar Hasanzadeh
-            </a>
-          </p>
         </div>
       </footer>
+
+      {/* ── Baza valyutası seçici (modal) ──────────────────────── */}
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          onClick={() => setPickerOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Baza valyutasını seç"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#0a0f18] shadow-2xl sm:rounded-3xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+              <h2 className="font-bold text-white">Baza valyutası</h2>
+              <button
+                onClick={() => setPickerOpen(false)}
+                aria-label="Bağla"
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-3">
+              <input
+                type="text"
+                value={pickerQuery}
+                onChange={(e) => setPickerQuery(e.target.value)}
+                placeholder="Axtar — manat, USD, rubl…"
+                autoFocus
+                aria-label="Baza valyutası axtar"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition focus:border-emerald-500/60 placeholder:text-slate-600"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+              {allCodes
+                .filter((code) => {
+                  const q = pickerQuery.trim().toLowerCase();
+                  if (!q) return true;
+                  const meta = getMeta(code);
+                  return (
+                    code.toLowerCase().includes(q) ||
+                    meta.name.toLowerCase().includes(q)
+                  );
+                })
+                .map((code) => {
+                  const meta = getMeta(code);
+                  const selected = code === base;
+                  return (
+                    <button
+                      key={code}
+                      onClick={() => chooseBase(code)}
+                      className={
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition " +
+                        (selected ? "bg-emerald-500/15" : "hover:bg-white/5")
+                      }
+                    >
+                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-white/5 text-lg">
+                        {meta.flag}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-bold text-white">{code}</span>
+                        <span className="block truncate text-xs text-slate-400">
+                          {meta.name}
+                        </span>
+                      </span>
+                      {selected && <span className="text-emerald-400">✓</span>}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast (limit bildirişi) ────────────────────────────── */}
+      {notice && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex justify-center px-4">
+          <div className="pointer-events-auto rounded-xl border border-amber-500/30 bg-amber-500/15 px-4 py-2.5 text-sm font-medium text-amber-200 shadow-lg backdrop-blur">
+            {notice}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

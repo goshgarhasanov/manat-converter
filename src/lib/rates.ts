@@ -26,6 +26,7 @@ export async function fetchRates(): Promise<RatesResult> {
       for (const [code, value] of Object.entries(data.rates)) {
         if (typeof value === "number" && isFinite(value)) rates[code] = value;
       }
+      rates.AZN = 1; // baza özü (istənilən valyutadan çevirmə üçün lazımdır)
       fiatOk = true;
       if (data.time_last_update_utc) {
         updatedAt = new Date(data.time_last_update_utc).toISOString();
