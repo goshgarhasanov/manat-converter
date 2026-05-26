@@ -27,6 +27,52 @@ function formatValue(value: number, type: CurrencyType): string {
   });
 }
 
+// ─── Rəqəmi Azərbaycan dilində sözlə yazma ──────────────────────────────
+const AZ_ONES = ["", "bir", "iki", "üç", "dörd", "beş", "altı", "yeddi", "səkkiz", "doqquz"];
+const AZ_TENS = ["", "on", "iyirmi", "otuz", "qırx", "əlli", "altmış", "yetmiş", "səksən", "doxsan"];
+const AZ_SCALES = ["", "min", "milyon", "milyard"];
+
+function azThreeDigits(n: number): string {
+  const h = Math.floor(n / 100);
+  const t = Math.floor((n % 100) / 10);
+  const o = n % 10;
+  const parts: string[] = [];
+  if (h) parts.push(h === 1 ? "yüz" : AZ_ONES[h] + " yüz");
+  if (t) parts.push(AZ_TENS[t]);
+  if (o) parts.push(AZ_ONES[o]);
+  return parts.join(" ");
+}
+
+function azInteger(num: number): string {
+  if (num === 0) return "sıfır";
+  const groups: number[] = [];
+  let n = num;
+  while (n > 0) {
+    groups.push(n % 1000);
+    n = Math.floor(n / 1000);
+  }
+  const parts: string[] = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    if (!g) continue;
+    if (i === 0) parts.push(azThreeDigits(g));
+    else if (i === 1 && g === 1) parts.push("min"); // 1000 → "min", "bir min" deyil
+    else parts.push(azThreeDigits(g) + " " + AZ_SCALES[i]);
+  }
+  return parts.join(" ");
+}
+
+// Fiat dəyərini sözlə: tam hissə + (varsa) "tam" + qəpik hissəsi. İlk hərf böyük.
+function valueToWords(value: number): string {
+  if (!isFinite(value) || value < 0) return "";
+  const intPart = Math.floor(value + 1e-9);
+  if (intPart >= 1e12) return ""; // çox böyük rəqəm sözlə yazılmır
+  const frac = Math.round((value - intPart) * 100);
+  let w = azInteger(intPart);
+  if (frac > 0) w += " tam " + azInteger(frac);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
 function sortByPopularity(a: string, b: string): number {
   const ia = POPULAR_ORDER.indexOf(a);
   const ib = POPULAR_ORDER.indexOf(b);
@@ -222,28 +268,42 @@ export default function Page() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 sm:px-6">
       {/* ── Tarix və canlı saat ────────────────────────────────── */}
-      <div className="pt-6 text-center">
+      <div className="flex justify-center pt-6">
         {now ? (
-          <>
-            <div className="text-xs font-medium capitalize text-slate-400 sm:text-sm">
-              {now.toLocaleDateString("az-AZ", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
+          <div className="inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 shadow-lg shadow-black/20">
+            <span className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 text-slate-950 shadow-md shadow-cyan-500/30">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <polyline points="12 7 12 12 15 14" />
+              </svg>
+            </span>
+            <div className="text-left">
+              <div className="tnum bg-gradient-to-r from-cyan-300 to-emerald-300 bg-clip-text text-2xl font-black leading-none text-transparent sm:text-3xl">
+                {now.toLocaleTimeString("az-AZ", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </div>
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium capitalize text-slate-400">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-none text-violet-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                {now.toLocaleDateString("az-AZ", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </div>
             </div>
-            <div className="tnum mt-0.5 text-3xl font-black tracking-tight text-white sm:text-4xl">
-              {now.toLocaleTimeString("az-AZ", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </div>
-          </>
+          </div>
         ) : (
-          // Yer tutucu — server/ilk render ilə uyğunluq (hidrasiya sıçrayışı olmasın)
-          <div className="h-[3.25rem] sm:h-[3.75rem]" />
+          // Yer tutucu — hidrasiya sıçrayışının qarşısını alır
+          <div className="h-[68px]" />
         )}
       </div>
 
@@ -443,56 +503,85 @@ export default function Page() {
               const isFav = featured.includes(code);
               const isCopied = copied === code;
               const lockedOut = !isFav && atLimit;
+              const words = meta.type === "fiat" && amountNum > 0 ? valueToWords(value) : "";
               return (
                 <div
                   key={code}
-                  className="group flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3.5 transition hover:border-white/15 hover:bg-white/[0.06]"
+                  className="group rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3.5 transition hover:border-white/15 hover:bg-white/[0.06]"
                 >
-                  <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-white/5 text-xl">
-                    {meta.flag}
-                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-white/5 text-xl">
+                      {meta.flag}
+                    </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-white">{code}</span>
-                      {meta.type === "crypto" && (
-                        <span className="rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-amber-300">
-                          kripto
-                        </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-white">{code}</span>
+                        {meta.type === "crypto" && (
+                          <span className="rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-amber-300">
+                            kripto
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate text-xs text-slate-400">{meta.name}</div>
+                    </div>
+
+                    <button
+                      onClick={() => copyValue(code, value, meta.type)}
+                      aria-label={`${code} dəyərini kopyala`}
+                      className="flex-none text-right transition active:scale-95"
+                    >
+                      <div className="tnum font-bold text-emerald-300">
+                        {isCopied ? "✓ kopyalandı" : formatValue(value, meta.type)}
+                      </div>
+                      <div className="tnum text-[11px] text-slate-500">
+                        1 {base} = {formatValue(unit, meta.type)}
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => toggleFeatured(code)}
+                      aria-label={isFav ? "Seçilmişlərdən çıxar" : "Seçilmişlərə əlavə et"}
+                      aria-pressed={isFav}
+                      title={
+                        isFav
+                          ? "Seçilmişlərdən çıxar"
+                          : lockedOut
+                            ? `Limit dolub (${MAX_FEATURED}/${MAX_FEATURED})`
+                            : "Seçilmişlərə əlavə et"
+                      }
+                      className={
+                        "flex h-10 w-10 flex-none items-center justify-center rounded-xl transition active:scale-90 " +
+                        (isFav
+                          ? "text-rose-400 hover:bg-rose-500/10"
+                          : lockedOut
+                            ? "text-slate-700"
+                            : "text-emerald-400 hover:bg-emerald-500/10")
+                      }
+                    >
+                      {isFav ? (
+                        // Zibil qutusu — seçilmişlərdən çıxar
+                        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      ) : (
+                        // Plus — seçilmişlərə əlavə et
+                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
                       )}
-                    </div>
-                    <div className="truncate text-xs text-slate-400">{meta.name}</div>
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => copyValue(code, value, meta.type)}
-                    aria-label={`${code} dəyərini kopyala`}
-                    className="flex-none text-right transition active:scale-95"
-                  >
-                    <div className="tnum font-bold text-emerald-300">
-                      {isCopied ? "✓ kopyalandı" : formatValue(value, meta.type)}
+                  {words && (
+                    <div className="mt-2.5 border-t border-white/5 pt-2 text-[11px] italic text-slate-500">
+                      {words}
                     </div>
-                    <div className="tnum text-[11px] text-slate-500">
-                      1 {base} = {formatValue(unit, meta.type)}
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => toggleFeatured(code)}
-                    aria-label={isFav ? "Seçilmişlərdən çıxar" : "Seçilmişlərə əlavə et"}
-                    aria-pressed={isFav}
-                    title={lockedOut ? `Limit dolub (${MAX_FEATURED}/${MAX_FEATURED})` : undefined}
-                    className={
-                      "flex h-10 w-10 flex-none items-center justify-center rounded-xl text-lg transition active:scale-90 " +
-                      (isFav
-                        ? "text-amber-400 hover:bg-amber-400/10"
-                        : lockedOut
-                          ? "text-slate-700"
-                          : "text-slate-600 hover:bg-white/5 hover:text-slate-300")
-                    }
-                  >
-                    {isFav ? "★" : "☆"}
-                  </button>
+                  )}
                 </div>
               );
             })}

@@ -8,6 +8,19 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Klikləyici elementlərdə əl kursoru */
+button:not(:disabled),
+a[href],
+[role="button"],
+[role="tab"],
+label[for],
+summary {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
